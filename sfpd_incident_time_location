@@ -1,0 +1,310 @@
+# load libraries
+library(rattle) #quantile binning
+#library(NLP)  #Naive Bayes
+#library(tm)	#Naive Bayes
+#library(e1071)	#Naive Bayes
+#library(C50)	#Decision Trees
+#library(RWeka)	#Classification Rule Learners
+library(lattice)
+library(ggmap)
+library(mapproj)
+library(sp)
+library(maptools)
+library(RColorBrewer)
+library(plyr)
+library(gplots)
+library(reshape)
+library(reshape2)
+library(ggplot2)
+library(zoo)
+library(gmodels)
+
+#map <- get_map(location = 'San Franciso', zoom = 11)
+map <- get_map(location = c(lon = -122.45, lat= 37.75), zoom = 12, 
+               maptype = "roadmap",
+               source = c("google"))
+ggmap(map)
+?get_map
+
+
+# load file
+  setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\sfpd_incident_all_csv")
+
+# Open csv
+  years <- seq(2003,2014,1)
+  fileroot = "sfpd_incident_"
+  total_table <- as.data.frame(matrix(nrow = 0, ncol = 12))
+
+  for (year in 1:length(years))
+  {
+    raw_table <- read.csv(paste(fileroot,years[year],".csv", sep=""), stringsAsFactors = TRUE)
+    raw_table$Year <- years[year]
+    #total_table <- rbind(total_table, read.csv(paste(fileroot,years[year],".csv", sep=""), stringsAsFactors = TRUE))
+    total_table <- rbind(total_table, raw_table)
+    print(nrow(total_table))
+  }
+
+  table_2013_2014 <- read.csv(paste(fileroot,"2013_2014.csv", sep=""), stringsAsFactors = TRUE)
+  table_2013 <- read.csv(paste(fileroot,"2013.csv", sep=""), stringsAsFactors = TRUE)
+  table_2014 <- read.csv(paste(fileroot,"2014.csv", sep=""), stringsAsFactors = TRUE)
+
+# Select rows with unique Incident Numbers
+  incident_number_2013_2014 <- c(table_2013$IncidntNum, table_2014$IncidntNum)
+  table_2013_2014_new <-table_2013_2014[!table_2013_2014$IncidntNum %in% c(incident_number_2013_2014),]
+
+# Add Year column
+  table_2013_2014_new$Year <- as.numeric(substr(table_2013_2014_new$Date,1,4))
+
+# Select columns in other tables
+  total_table[1,]
+  table_2013_2014_new[1,17]  
+  table_2013_2014_new <- table_2013_2014_new[,c(2,5,7,8,9,10,11,12,13,14,15,17)]
+  colnames(table_2013_2014_new)[9] <- "Location"
+
+# Append to total table
+  total_table <- rbind(total_table, table_2013_2014_new)
+  #save(total_table, file="total_table.RData")
+  #load("total_table.RData")
+
+# Bin x, y coordinates
+  total_table_filtered <- subset(total_table, X!=0 | Y!=0)
+  #summary(total_table_filtered$X)
+  total_table_filtered$X_block <- as.factor(round(total_table_filtered$X/0.0025,0)*0.0025)
+  total_table_filtered$Y_block <- as.factor(round(total_table_filtered$Y/0.0025,0)*0.0025)
+  
+  total_table_filtered$XY_block <- as.factor(paste("(",total_table_filtered$X_block,",",total_table_filtered$Y_block,")", sep=""))
+  
+  str(total_table_filtered$XY_block)
+  str(total_table_filtered)
+  colnames(total_table_filtered)
+
+#total_table_filtered$Time_Block <- NA
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 24] <- "Late Night (10PM-2AM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 22] <- "Evening (6PM-10PM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 18] <- "Afternoon (2PM-6PM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 14] <- "Mid-Day (10AM-2PM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 10] <- "Morning (6AM-10AM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 6] <- "Early Morning (2AM-6AM)"
+  total_table_filtered$Time_Block[as.numeric(substr(total_table_filtered$Time,1,2)) < 2] <- "Late Night (10PM-2AM)"
+  total_table_filtered$Time_Block <- factor(total_table_filtered$Time_Block, c("Morning (6AM-10AM)","Mid-Day (10AM-2PM)","Afternoon (2PM-6PM)","Evening (6PM-10PM)","Late Night (10PM-2AM)","Early Morning (2AM-6AM)"))
+  
+  total_table_filtered$DayTime_Block <- as.factor(paste(total_table_filtered$DayOfWeek,total_table_filtered$Time_Block, sep=": "))
+  total_table_filtered$DayOfWeek <- factor(total_table_filtered$DayOfWeek, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+  
+  table(total_table_filtered$Time_Block, total_table_filtered$DayOfWeek)
+  
+  total_table_filtered$DayTime_Block <- 
+  factor(total_table_filtered$DayTime_Block, 
+         levels = c("Monday: Morning (6AM-10AM)", "Monday: Mid-Day (10AM-2PM)", "Monday: Afternoon (2PM-6PM)", "Monday: Evening (6PM-10PM)", "Monday: Late Night (10PM-2AM)", "Monday: Early Morning (2AM-6AM)",
+       "Tuesday: Morning (6AM-10AM)", "Tuesday: Mid-Day (10AM-2PM)", "Tuesday: Afternoon (2PM-6PM)", "Tuesday: Evening (6PM-10PM)", "Tuesday: Late Night (10PM-2AM)", "Tuesday: Early Morning (2AM-6AM)",
+       "Wednesday: Morning (6AM-10AM)", "Wednesday: Mid-Day (10AM-2PM)", "Wednesday: Afternoon (2PM-6PM)", "Wednesday: Evening (6PM-10PM)", "Wednesday: Late Night (10PM-2AM)", "Wednesday: Early Morning (2AM-6AM)",
+       "Thursday: Morning (6AM-10AM)", "Thursday: Mid-Day (10AM-2PM)", "Thursday: Afternoon (2PM-6PM)", "Thursday: Evening (6PM-10PM)", "Thursday: Late Night (10PM-2AM)", "Thursday: Early Morning (2AM-6AM)",
+       "Friday: Morning (6AM-10AM)", "Friday: Mid-Day (10AM-2PM)", "Friday: Afternoon (2PM-6PM)", "Friday: Evening (6PM-10PM)", "Friday: Late Night (10PM-2AM)", "Friday: Early Morning (2AM-6AM)",
+       "Saturday: Morning (6AM-10AM)", "Saturday: Mid-Day (10AM-2PM)", "Saturday: Afternoon (2PM-6PM)", "Saturday: Evening (6PM-10PM)", "Saturday: Late Night (10PM-2AM)", "Saturday: Early Morning (2AM-6AM)",
+       "Sunday: Morning (6AM-10AM)", "Sunday: Mid-Day (10AM-2PM)", "Sunday: Afternoon (2PM-6PM)", 
+       "Sunday: Evening (6PM-10PM)", "Sunday: Late Night (10PM-2AM)", "Sunday: Early Morning (2AM-6AM)"))
+  
+  summary(total_table_filtered$DayTime_Block)
+  nrow(total_table_filtered)
+
+# Save processed file
+  save(total_table_filtered, file="total_table_filtered.RData")
+  #load("total_table_filtered.RData")
+
+# Make trellis chart of crime category, time of day, year
+# Pareto of crime types
+  setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis")
+  pareto <-table(total_table_filtered$Category)
+  valsort <- pareto[ order(-pareto)]
+  palette <- colorRampPalette(c("orangered", "lightblue"))(n = 39)
+  png("crime_histogram.png", width = 10, height = 10, units = 'in', res = 1200)
+  op <- par(mar=c(12,7,2,1)) 
+  barplot <- barplot(valsort/length(years), main=paste("Incident Category Pareto"), log="y",
+                   col = palette,
+                   legend = rownames(counts), legend.text=FALSE,
+                   #xlab="Day of Week",
+                   ylab="Incident Count per Year", las=2,
+                   axis.lty = 1, cex.names=0.75)
+  dev.off()
+
+# Barplots for incidents by DayTime
+  for (item in 1:length(years))
+  {
+    setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\barplots")
+    print(paste(item, years[item], sep="."))
+    # Stacked absolute Bar Plot with Colors and Legend
+      #counts <- table(total_table_filtered$Category[total_table_filtered$Year==years[item]], total_table_filtered$DayTime_Block[total_table_filtered$Year==years[item]])
+      counts <- table(total_table_filtered$Time_Block[total_table_filtered$Year==years[item]], total_table_filtered$DayOfWeek[total_table_filtered$Year==years[item]])
+      
+      png(paste(gsub("/","_",crime_cat[item]),"_year.png"), width = 5, height = 5, units = 'in', res = 1200)
+      par(mar = c(8, 8, 2, 2), mgp = c(6, 1, 0))
+      barplot <- barplot(counts, main=paste("CrimeCat Hist:",years[item]),
+                         col = c("darkgoldenrod1", "darkorange2", "darkorchid1",
+                                 "cadetblue2"," deepskyblue", "gray60"),
+                         legend = rownames(counts), legend.text=FALSE,
+                         xlab="Day of Week",
+                         ylab="Incident Count", ylim = c(0,25000), las=2,
+                         axis.lty = 1, cex.names=1)
+      dev.off()        
+      #percentages <- 100*counts/sum(counts)
+  }
+
+# Most popular crimes by time of week
+
+  crime_cat <- c("ARSON","ASSAULT","BAD CHECKS","BRIBERY","BURGLARY","DISORDERLY CONDUCT",
+    "DRIVING UNDER THE INFLUENCE","DRUG/NARCOTIC","DRUNKENNESS","EMBEZZLEMENT",
+    "EXTORTION","FAMILY OFFENSES","FORGERY/COUNTERFEITING","FRAUD","GAMBLING",
+    "KIDNAPPING","LARCENY/THEFT","LIQUOR LAWS","LOITERING","MISSING PERSON",
+    "NON-CRIMINAL","OTHER OFFENSES","PORNOGRAPHY/OBSCENE MAT","PROSTITUTION",
+    "ROBBERY","RUNAWAY","SEX OFFENSES, FORCIBLE","SEX OFFENSES, NONFORCIBLE",
+    "STOLEN PROPERTY","SUICIDE","SUSPICIOUS OCC","TRESPASS","VANDALISM",
+    "VEHICLE THEFT","WARRANTS","WEAPON LAWS","RECOVERED VEHICLE","SECONDARY CODES","TREA")
+  
+  for (item in 1:length(crime_cat))
+  {
+    setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\barplots")
+    
+    counts <- table(total_table_filtered$DayTime_Block[total_table_filtered$Category==crime_cat[item]])
+    percentages <- 100*counts/sum(counts)
+    print(crime_cat[item])
+    if (sum(counts) > 0)
+      {
+      
+      png(paste(gsub("/","_",crime_cat[item]),"_time.png"), width = 5, height = 5, units = 'in', res = 1200)
+      par(mar = c(9, 4, 2, 2), mgp = c(3, 1, 0))
+      barplot <- barplot(percentages, main=paste(crime_cat[item],"vs. Time of Week"),
+                         col = c("gold1", "darkorange2", "darkorchid1",
+                                 "cadetblue2"," deepskyblue", "gray60"),
+                         legend = rownames(counts), legend.text=FALSE,
+                         ylab="Incident Percentage", las=2,
+                         axis.lty = 1, cex.names=0.5)
+      print(crime_cat[item])
+    }
+  }
+
+#Heat Map of crime types
+  my_palette <- colorRampPalette(c("green", "yellow", "red"))(n = 300)
+
+  for (item in 1:length(crime_cat))
+    {
+    setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\heatmaps")
+    print(crime_cat[item])
+    crime_subset <- total_table_filtered[total_table_filtered$Category==crime_cat[item],]
+    if (nrow(crime_subset) > 0)
+    {    
+    
+      crime_subset_count <- count(crime_subset, c("X_block","Y_block"))
+      crime_subset_count <- data.frame(crime_subset_count)
+      quantile_range <- quantile(crime_subset_count[,"freq"], probs = seq(0, 1, 0.001))
+      
+      ## prepare label text (use two adjacent values for range text)
+      label_text <- rollapply(round(quantile_range, 2), width = 2, by = 1, FUN = function(i) paste(i, collapse = " : "))
+      
+      ## discretize matrix
+      crime_subset_count$quantile <- matrix(findInterval(crime_subset_count[,"freq"], quantile_range, all.inside = TRUE), nrow = nrow(crime_subset_count))
+      crime_subset_count$quantile <- crime_subset_count$quantile/10
+      ## recast data
+      mdata <- melt(crime_subset_count[c(1,2,4)], id=c("Y_block", "X_block"))  
+      ctable <- acast(mdata, Y_block ~ X_block , sum)
+      
+      print(crime_cat[item])
+      heat_matrix <- data.matrix(ctable)      
+      rev_row <- seq(nrow(heat_matrix),1,-1)
+      heat_matrix_ordered <- heat_matrix[c(rev_row),]  
+      png(paste(gsub("/","_",crime_cat[item]),"_heatmap_pct.png"), width = 6, height = 6, units = 'in', res = 1200)
+      heatmap.2(heat_matrix_ordered,
+                #cellnote = heat_matrix,                 # same data set for cell labels
+                main = "",   # heat map title
+                #notecol="white",                        # change font color of cell labels to black
+                density.info="none",                    # turns off density plot inside color legend
+                trace="none",                           # turns off trace lines inside the heat map
+                col=my_palette,                         # use on color palette defined earlier 
+                #breaks=col_breaks,                      # enable color transition at specified limits
+                dendrogram="none",                       # only draw a row dendrogram
+                Colv="NA",
+                Rowv="NA",      # turn off column clustering
+                margins =c(4.5,4.5),                       # widens margins around plot
+                lmat=rbind(c(2,4),c(3,1)), 
+                lhei=c(1,4), 
+                lwid=c(1,4)
+                )
+      text(0.05,0.4,crime_cat[item],srt=90)
+      dev.off() 
+    }
+  }
+
+  for (item in 1:length(crime_cat))
+  {
+    setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\heatmaps")
+    print(crime_cat[item])
+    crime_subset <- total_table_filtered[total_table_filtered$Category==crime_cat[item],]
+    if (nrow(crime_subset) > 0)
+    {    
+      print(crime_cat[item])
+      counts <- table(total_table_filtered$Y_block[total_table_filtered$Category==crime_cat[item]], total_table_filtered$X_block[total_table_filtered$Category==crime_cat[item]])
+      heat_matrix <- data.matrix(counts)
+      rev_row <- seq(nrow(heat_matrix),1,-1)
+      heat_matrix_ordered <- heat_matrix[c(rev_row),]    
+      png(paste(gsub("/","_",crime_cat[item]),"_heatmap_abs.png"), width = 6, height = 6, units = 'in', res = 1200)
+      heatmap.2(heat_matrix_ordered,
+                #cellnote = heat_matrix,                 # same data set for cell labels
+                main = "",   # heat map title
+                #notecol="white",                        # change font color of cell labels to black
+                density.info="none",                    # turns off density plot inside color legend
+                trace="none",                           # turns off trace lines inside the heat map
+                col=my_palette,                         # use on color palette defined earlier 
+                #breaks=col_breaks,                      # enable color transition at specified limits
+                dendrogram="none",                       # only draw a row dendrogram
+                Colv="NA",
+                Rowv="NA",      # turn off column clustering
+                margins =c(4.5,4.5),                       # widens margins around plot
+                lmat=rbind(c(2,4),c(3,1)), 
+                lhei=c(1,4), 
+                lwid=c(1,4)
+                )
+      text(0.05,0.4,crime_cat[item],srt=90)
+      dev.off() 
+      }
+    }
+  
+  
+  
+#--------------------------------------------------------------------
+    
+      
+
+# load in the shape file
+  setwd ("C:\\Users\\dave.chi\\DataScience\\SF_DSP\\SFPD_analysis\\zillow_neighborhood_boundaries")
+  CA_hood_shapes <- readShapePoly("ZillowNeighborhoods-CA.shp")
+
+# Extract San Francisco coordinates
+  SF_hood_shapes <- CA_hood_shapes[CA_hood_shapes$CITY=="San Francisco",]
+
+# Function to look up shapes
+  neighborhood <- function(s, lon, lat) {
+    names <- s$NAME;
+    for (name in names) {
+      lons <- s[s$NAME==name,]@polygons[[1]]@Polygons[[1]]@coords[,1];
+      lats <- s[s$NAME==name,]@polygons[[1]]@Polygons[[1]]@coords[,2];
+      res <- point.in.polygon(lon,lat,lons,lats);
+      if (res==1) {
+        return(name);
+      } 
+    }
+    return(NA)
+  }
+
+  map_neighborhoods <- function(s, lons, lats) {
+    neighborhoods <- rep(NA, length(lons));
+    for(i in 1:length(lons)) {
+      neighborhoods[i] <- neighborhood(s,lons[i], lats[i]);
+    }
+    return(neighborhoods);
+  }
+
+# Add neighborhood to table
+  # Randomize data and subset
+  #total_table_hood <- transform(total_table,neighborhood = map_neighborhoods(SF_hood_shapes, total_table$X, total_table$Y))2
+  total_row <- nrow(total_table)  
+  neighborhood <- map_neighborhoods(SF_hood_shapes, total_table$X[1:total_row], total_table$Y[1:total_row])
+  
